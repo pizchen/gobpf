@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// loosely based on https://github.com/iovisor/bcc/blob/v0.3.0/src/python/bcc/utils.py#L15
+// loosely based on https://github.com/pizchen/bcc/blob/v0.3.0/src/python/bcc/utils.py#L15
 func ReadCPURange(cpuRangeStr string) ([]uint, error) {
 	var cpus []uint
 	cpuRangeStr = strings.Trim(cpuRangeStr, "\n ")
