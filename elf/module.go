@@ -375,12 +375,12 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 	return err
 }
 
-func (b *Module) AttachKprobe(secName, probeName string, maxactive int) {
+func (b *Module) AttachKprobe(secName, probeName string, maxactive int) error {
 	probe, ok := b.probes[secName]
 	if !ok {
 		return fmt.Errorf("no such kprobe %q", secName)
 	}
-	b.Name = probeName
+	probe.Name = probeName
 	return EnableKprobe(probeName, maxactive)
 }
 
