@@ -381,7 +381,7 @@ func (b *Module) AttachKprobe(secName, probeName string, maxactive int) error {
 		return fmt.Errorf("no such kprobe %q", secName)
 	}
 	probe.Name = probeName
-	return EnableKprobe(probeName, maxactive)
+	return b.EnableKprobe(probeName, maxactive)
 }
 
 func writeTracepointEvent(category, name string) (int, error) {
