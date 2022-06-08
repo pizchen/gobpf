@@ -356,6 +356,10 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 		probeType = "p"
 		funcName = strings.TrimPrefix(secName, "kprobe/")
 	}
+	if strings.HasPrefix(funcName, "NONAME/") {
+		// skip placeholder
+		return nil
+	}
 	eventName := probeType + funcName
 
 	kprobeId, err := writeKprobeEvent(probeType, eventName, funcName, maxactiveStr)
@@ -369,6 +373,15 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 
 	probe.efd, err = perfEventOpenTracepoint(kprobeId, progFd)
 	return err
+}
+
+func (b *Module) AttachKprobe(secName, probeName string, maxactive int) {
+	probe, ok := b.probes[secName]
+	if !ok {
+		return fmt.Errorf("no such kprobe %q", secName)
+	}
+	b.Name = probeName
+	return EnableKprobe(probeName, maxactive)
 }
 
 func writeTracepointEvent(category, name string) (int, error) {
