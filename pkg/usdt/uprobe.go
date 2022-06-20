@@ -4,19 +4,20 @@ import (
 	"bytes"
 	"debug/elf"
 	"encoding/binary"
+	"fmt"
 	"unsafe"
 )
 
 type Elf_Nhdr struct {
 	SzName uint32
 	SzDesc uint32
-	Type uint32
+	Type   uint32
 }
 
 type SdtDesc struct {
 	Addr uint64
 	Base uint64
-	Sem uint64
+	Sem  uint64
 	//Provider string
 	//ProbeName string
 	//Args string
@@ -27,7 +28,7 @@ func Bytes2String(b []byte) string {
 }
 
 func Align(l, a int) int {
-	return ((l + a - 1)/a)*a
+	return ((l + a - 1) / a) * a
 }
 
 func Uprobes(path string) (map[string]uint64, error) {
@@ -85,11 +86,14 @@ func Uprobes(path string) (map[string]uint64, error) {
 		data = data[unsafe.Sizeof(desc):]
 
 		prov := Bytes2String(data)
+		if len(prov) == 0 {
+			return nil, fmt.Errorf("provider name is null")
+		}
 		data = data[len(prov)+1:]
 
 		prob := Bytes2String(data)
 		if len(prob) > 0 {
-			um[prob] = desc.Addr - load
+			um[prov+":"+prob] = desc.Addr - load
 		}
 	}
 

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // Copyright 2016 Cilium Project
@@ -685,9 +686,9 @@ func (b *Module) Load(parameters map[string]SectionParams) error {
 					}
 				case isXDP:
 					b.xdpPrograms[secName] = &XDPProgram{
-						Name: secName,
+						Name:  secName,
 						insns: insns,
-						fd: int(progFd),
+						fd:    int(progFd),
 					}
 				}
 			}
@@ -822,9 +823,9 @@ func (b *Module) Load(parameters map[string]SectionParams) error {
 				}
 			case isXDP:
 				b.xdpPrograms[secName] = &XDPProgram{
-					Name: secName,
+					Name:  secName,
 					insns: insns,
-					fd: int(progFd),
+					fd:    int(progFd),
 				}
 			}
 		}

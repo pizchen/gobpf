@@ -380,7 +380,12 @@ func (b *Module) AttachKprobe(secName, probeName string, maxactive int) error {
 	if !ok {
 		return fmt.Errorf("no such kprobe %q", secName)
 	}
-	probe.Name = probeName
+	b.probes[probeName] = &Kprobe{
+		Name: probeName,
+		insns: probe.insns,
+		fd: probe.fd,
+		efd: probe.efd,
+	}
 	return b.EnableKprobe(probeName, maxactive)
 }
 
