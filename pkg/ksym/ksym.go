@@ -2,65 +2,95 @@ package ksym
 
 import (
 	"bufio"
-	"errors"
-	"io"
+	"fmt"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 const (
 	KALLSYMS = "/proc/kallsyms"
+	KFLTFUNC = "/sys/kernel/debug/tracing/available_filter_functions"
 )
 
 type ksymCache struct {
 	sync.RWMutex
-	ksym map[string]string
+	funcs map[string]struct{}
+	ksym  map[uint64]string
+	addr  []uint64
 }
 
 var cache ksymCache
 
-// Ksym translates a kernel memory address into a kernel function name
-// using `/proc/kallsyms`
-func Ksym(addr string) (string, error) {
-	if cache.ksym == nil {
-		cache.ksym = make(map[string]string)
+func init() {
+
+	cache.funcs = make(map[string]struct{})
+	cache.ksym = make(map[uint64]string)
+	cache.addr = make([]uint64, 0)
+
+	fd1, err := os.Open(KFLTFUNC)
+	if err != nil {
+		fmt.Println("Error opening " + KALLSYMS)
+		os.Exit(1)
 	}
+	defer fd1.Close()
+
+	s1 := bufio.NewScanner(fd1)
+	for s1.Scan() {
+		l := s1.Text()
+		ar := strings.Fields(l)
+		cache.funcs[ar[0]] = struct{}{}
+	}
+
+	fd2, err := os.Open(KALLSYMS)
+	if err != nil {
+		fmt.Println("Error opening " + KALLSYMS)
+		os.Exit(1)
+	}
+	defer fd2.Close()
+
+	s2 := bufio.NewScanner(fd2)
+	for s2.Scan() {
+		l := s2.Text()
+		ar := strings.Fields(l)
+		if len(ar) < 3 {
+			continue
+		}
+
+		if strings.ToLower(ar[1]) != "t" {
+			continue
+		}
+
+		if _, ok := cache.funcs[ar[2]]; !ok {
+			continue
+		}
+
+		adr, err := strconv.ParseUint(ar[0], 16, 64)
+		if err != nil {
+			continue
+		}
+
+		cache.ksym[adr] = ar[2]
+		cache.addr = append(cache.addr, adr)
+	}
+
+	sort.Slice(cache.addr, func(i, j int) bool { return cache.addr[i] < cache.addr[j] })
+}
+
+// Ksym translates a kernel memory address into a kernel function name
+func Ksym(addr uint64) string {
 
 	cache.Lock()
 	defer cache.Unlock()
 
-	if _, ok := cache.ksym[addr]; !ok {
-		fd, err := os.Open(KALLSYMS)
-		if err != nil {
-			return "", err
-		}
-		defer fd.Close()
-
-		fn := ksym(addr, fd)
-		if fn == "" {
-			return "", errors.New("kernel function not found for " + addr)
-		}
-
-		cache.ksym[addr] = fn
+	i := sort.Search(len(cache.addr), func(i int) bool { return cache.addr[i] > addr })
+	if i == 0 || i == len(cache.addr) {
+		return "0x" + strconv.FormatUint(addr, 16)
 	}
 
-	return cache.ksym[addr], nil
-}
-
-func ksym(addr string, r io.Reader) string {
-	s := bufio.NewScanner(r)
-	for s.Scan() {
-		l := s.Text()
-		ar := strings.Split(l, " ")
-		if len(ar) != 3 {
-			continue
-		}
-
-		if ar[0] == addr {
-			return ar[2]
-		}
-	}
-
-	return ""
+	i = i - 1
+	ofs := addr - cache.addr[i]
+	return cache.ksym[cache.addr[i]] + ":0x" + strconv.FormatUint(ofs, 16)
 }

@@ -58,9 +58,11 @@ type AppTracer interface {
 	FlagParse()
 	Initialize() (*tracer.Tracer, error)
 	DoJob(t *tracer.Tracer, start time.Time)
+	SigHandler(t *tracer.Tracer)
+	Terminate(t *tracer.Tracer)
 }
 
-func Run(app AppTracer, args *map[string]uint) {
+func Run(app AppTracer) {
 
 	flag.UintVar(&Args.LifeTime, "l", 3600*10, "seconds of program life time")
 	flag.UintVar(&Args.Interval, "i", 1000, "milli-seconds of report interval")
@@ -70,25 +72,16 @@ func Run(app AppTracer, args *map[string]uint) {
 
 	app.FlagParse()
 
-	if args != nil {
-		for k, v := range *args {
-			switch k {
-			case "n":
-				Args.Cycles = v
-			case "i":
-				Args.Interval = v
-			case "l":
-				Args.LifeTime = v
-			case "d":
-				Args.Debug = v
-			case "j":
-				Args.Justime = v
-			}
-		}
-	}
+	debug(Debug, "crt.Run enters")
 
 	// expand interval to micro seconds
 	Args.Interval *= 1000
+
+	tracer, err := app.Initialize()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
 
 	sigChan := make(chan os.Signal)
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
@@ -101,17 +94,13 @@ func Run(app AppTracer, args *map[string]uint) {
 		wg.Add(1)
 		defer wg.Done()
 		select {
-		case <-sigChan:
+		case s := <-sigChan:
+			debug(Debug, fmt.Sprintf("Signal received: %v", s))
+			app.SigHandler(tracer)
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
-
-	tracer, err := app.Initialize()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
 
 	go func() {
 
@@ -125,12 +114,14 @@ func Run(app AppTracer, args *map[string]uint) {
 			select {
 
 			case <-ctx.Done():
+				debug(Debug, "Main loop ctx.Done() received")
 				return
 
 			case <-time.After(time.Microsecond * time.Duration(remain)):
 
 				start := time.Now()
 
+				debug(Debug, "DoJob called")
 				app.DoJob(tracer, start)
 
 				if Args.Cycles > 0 {
@@ -150,9 +141,15 @@ func Run(app AppTracer, args *map[string]uint) {
 		}
 	}()
 
+	debug(Debug, "Tracer starting")
 	tracer.Start()
+
 	<-ctx.Done()
+
+	debug(Debug, "Tracer stopping")
 	tracer.Stop()
+
+	app.Terminate(tracer)
 
 	wg.Wait()
 }

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // Copyright 2016 Cilium Project
@@ -257,6 +258,10 @@ func writeKprobeEvent(probeType, eventName, funcName, maxactiveStr string) (int,
 		return -1, fmt.Errorf("cannot write %q to kprobe_events: %v", cmd, err)
 	}
 
+	if probeType == "-" {
+		return 0, nil
+	}
+
 	kprobeIdFile := fmt.Sprintf("/sys/kernel/debug/tracing/events/kprobes/%s/id", eventName)
 	kprobeIdBytes, err := ioutil.ReadFile(kprobeIdFile)
 	if err != nil {
@@ -362,6 +367,11 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 	}
 	eventName := probeType + funcName
 
+	if maxactive == -1 { // remove kprobe
+		probeType = "-"
+		maxactiveStr = ""
+	}
+
 	kprobeId, err := writeKprobeEvent(probeType, eventName, funcName, maxactiveStr)
 	// fallback without maxactive
 	if err == kprobeIDNotExist {
@@ -369,6 +379,10 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 	}
 	if err != nil {
 		return err
+	}
+
+	if probeType == "-" {
+		return nil
 	}
 
 	probe.efd, err = perfEventOpenTracepoint(kprobeId, progFd)
@@ -381,10 +395,10 @@ func (b *Module) AttachKprobe(secName, probeName string, maxactive int) error {
 		return fmt.Errorf("no such kprobe %q", secName)
 	}
 	b.probes[probeName] = &Kprobe{
-		Name: probeName,
+		Name:  probeName,
 		insns: probe.insns,
-		fd: probe.fd,
-		efd: probe.efd,
+		fd:    probe.fd,
+		efd:   probe.efd,
 	}
 	return b.EnableKprobe(probeName, maxactive)
 }
