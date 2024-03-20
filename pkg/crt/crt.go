@@ -56,10 +56,9 @@ func debug(reqLevel LogLevel, msg interface{}) {
 
 type AppTracer interface {
 	FlagParse()
-	Initialize() (*tracer.Tracer, error)
-	DoJob(t *tracer.Tracer, start time.Time)
-	SigHandler(t *tracer.Tracer)
-	Terminate(t *tracer.Tracer)
+	Begin() (*tracer.Tracer, error)
+	DoCycle(t *tracer.Tracer, start time.Time)
+	End(t *tracer.Tracer)
 }
 
 func Run(app AppTracer) {
@@ -68,7 +67,7 @@ func Run(app AppTracer) {
 	flag.UintVar(&Args.Interval, "i", 1000, "milli-seconds of report interval")
 	flag.UintVar(&Args.Cycles, "n", 0, "number of intervals to exit")
 	flag.UintVar(&Args.Justime, "j", 0, "number of micro seconds to justify")
-	flag.UintVar(&Args.Debug, "d", uint(Error), "debug switch")
+	flag.UintVar(&Args.Debug, "d", uint(Error), "debug switch (0[E],1[Ma],2[Mi],3[I],4[D],5[A])")
 
 	app.FlagParse()
 
@@ -77,7 +76,7 @@ func Run(app AppTracer) {
 	// expand interval to micro seconds
 	Args.Interval *= 1000
 
-	tracer, err := app.Initialize()
+	tracer, err := app.Begin()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -96,7 +95,6 @@ func Run(app AppTracer) {
 		select {
 		case s := <-sigChan:
 			debug(Debug, fmt.Sprintf("Signal received: %v", s))
-			app.SigHandler(tracer)
 			cancel()
 		case <-ctx.Done():
 		}
@@ -121,8 +119,8 @@ func Run(app AppTracer) {
 
 				start := time.Now()
 
-				debug(Debug, "DoJob called")
-				app.DoJob(tracer, start)
+				debug(Debug, "DoCycle called")
+				app.DoCycle(tracer, start)
 
 				if Args.Cycles > 0 {
 					if cycle++; cycle >= Args.Cycles {
@@ -141,15 +139,15 @@ func Run(app AppTracer) {
 		}
 	}()
 
-	debug(Debug, "Tracer starting")
 	tracer.Start()
 
 	<-ctx.Done()
 
-	debug(Debug, "Tracer stopping")
-	tracer.Stop()
+	// Run application end jobs before tracer stops
+	app.End(tracer)
+	debug(Debug, "Application ended")
 
-	app.Terminate(tracer)
+	tracer.Stop()
 
 	wg.Wait()
 }

@@ -258,10 +258,6 @@ func writeKprobeEvent(probeType, eventName, funcName, maxactiveStr string) (int,
 		return -1, fmt.Errorf("cannot write %q to kprobe_events: %v", cmd, err)
 	}
 
-	if probeType == "-" {
-		return 0, nil
-	}
-
 	kprobeIdFile := fmt.Sprintf("/sys/kernel/debug/tracing/events/kprobes/%s/id", eventName)
 	kprobeIdBytes, err := ioutil.ReadFile(kprobeIdFile)
 	if err != nil {
@@ -361,16 +357,13 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 		probeType = "p"
 		funcName = strings.TrimPrefix(secName, "kprobe/")
 	}
+
 	if strings.HasPrefix(funcName, "NONAME/") {
 		// skip placeholder
 		return nil
 	}
-	eventName := probeType + funcName
 
-	if maxactive == -1 { // remove kprobe
-		probeType = "-"
-		maxactiveStr = ""
-	}
+	eventName := probeType + funcName
 
 	kprobeId, err := writeKprobeEvent(probeType, eventName, funcName, maxactiveStr)
 	// fallback without maxactive
@@ -379,10 +372,6 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 	}
 	if err != nil {
 		return err
-	}
-
-	if probeType == "-" {
-		return nil
 	}
 
 	probe.efd, err = perfEventOpenTracepoint(kprobeId, progFd)
@@ -687,6 +676,10 @@ func (kp *Kprobe) Fd() int {
 }
 
 func disableKprobe(eventName string) error {
+	if strings.HasPrefix(eventName[1:], "NONAME/") {
+		// skip placeholder
+		return nil
+	}
 	kprobeEventsFileName := "/sys/kernel/debug/tracing/kprobe_events"
 	f, err := os.OpenFile(kprobeEventsFileName, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
@@ -762,6 +755,7 @@ func (xdpp *XDPProgram) Fd() int {
 
 func (b *Module) closeProbes() error {
 	var funcName string
+	closedFd := make(map[int]struct{})
 	for _, probe := range b.probes {
 		if probe.efd != -1 {
 			if err := syscall.Close(probe.efd); err != nil {
@@ -769,8 +763,12 @@ func (b *Module) closeProbes() error {
 			}
 			probe.efd = -1
 		}
-		if err := syscall.Close(probe.fd); err != nil {
-			return fmt.Errorf("error closing probe fd: %v", err)
+		// skip shared fd that already closed
+		if _, ok := closedFd[probe.fd]; !ok {
+			if err := syscall.Close(probe.fd); err != nil {
+				return fmt.Errorf("error closing probe fd: %v", err)
+			}
+			closedFd[probe.fd] = struct{}{}
 		}
 		name := probe.Name
 		isKretprobe := strings.HasPrefix(name, "kretprobe/")
