@@ -339,7 +339,7 @@ func (b *Module) EnableOptionCompatProbe() {
 // enabled, this is max(10, 2*NR_CPUS); otherwise, it is NR_CPUS.
 // For kprobes, maxactive is ignored.
 func (b *Module) EnableKprobe(secName string, maxactive int) error {
-	var probeType, funcName string
+	var probeType, funcName, eventName string
 	isKretprobe := strings.HasPrefix(secName, "kretprobe/")
 	probe, ok := b.probes[secName]
 	if !ok {
@@ -363,7 +363,7 @@ func (b *Module) EnableKprobe(secName string, maxactive int) error {
 		return nil
 	}
 
-	eventName := probeType + funcName
+	eventName = probeType + safeEventName(funcName)
 
 	kprobeId, err := writeKprobeEvent(probeType, eventName, funcName, maxactiveStr)
 	// fallback without maxactive
@@ -390,6 +390,14 @@ func (b *Module) AttachKprobe(secName, probeName string, maxactive int) error {
 		efd:   probe.efd,
 	}
 	return b.EnableKprobe(probeName, maxactive)
+}
+
+func (b *Module) AttachUprobe(secName, path string, offset uint64) error {
+	probe, ok := b.uprobes[secName]
+	if !ok {
+		return fmt.Errorf("no such uprobe %q", secName)
+	}
+	return AttachUprobe(probe, path, offset)
 }
 
 func writeTracepointEvent(category, name string) (int, error) {
@@ -421,6 +429,11 @@ func (b *Module) EnableTracepoint(secName string) error {
 	category := tracepointGroup[1]
 	name := tracepointGroup[2]
 
+	if category == "NONAME" {
+		// skip placeholder
+		return nil
+	}
+
 	tracepointId, err := writeTracepointEvent(category, name)
 	if err != nil {
 		return err
@@ -428,6 +441,20 @@ func (b *Module) EnableTracepoint(secName string) error {
 
 	prog.efd, err = perfEventOpenTracepoint(tracepointId, progFd)
 	return err
+}
+
+func (b *Module) AttachTracepoint(secName, tpName string) error {
+	probe, ok := b.tracepointPrograms[secName]
+	if !ok {
+		return fmt.Errorf("no such tracepoint %q", secName)
+	}
+	b.tracepointPrograms[tpName] = &TracepointProgram{
+		Name:  tpName,
+		insns: probe.insns,
+		fd:    probe.fd,
+		efd:   probe.efd,
+	}
+	return b.EnableTracepoint(tpName)
 }
 
 // IterKprobes returns a channel that emits the kprobes that included in the
@@ -754,7 +781,7 @@ func (xdpp *XDPProgram) Fd() int {
 }
 
 func (b *Module) closeProbes() error {
-	var funcName string
+	var funcName, probeType string
 	closedFd := make(map[int]struct{})
 	for _, probe := range b.probes {
 		if probe.efd != -1 {
@@ -775,11 +802,12 @@ func (b *Module) closeProbes() error {
 		var err error
 		if isKretprobe {
 			funcName = strings.TrimPrefix(name, "kretprobe/")
-			err = disableKprobe("r" + funcName)
+			probeType = "r"
 		} else {
 			funcName = strings.TrimPrefix(name, "kprobe/")
-			err = disableKprobe("p" + funcName)
+			probeType = "p"
 		}
+		err = disableKprobe(probeType + safeEventName(funcName))
 		if err != nil {
 			return fmt.Errorf("error clearing probe: %v", err)
 		}
